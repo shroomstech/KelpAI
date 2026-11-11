@@ -206,6 +206,7 @@
             </div>
             <select id="modelSelect">
                 <option value="kelp-flash">kelp-flash</option>
+                <option value="leafdrop-2.5">leafdrop-2.5 (2x fast)</option>
                 <option value="fatality-2">fatality-2</option>
             </select>
         </header>
@@ -213,8 +214,8 @@
         <div class="chat-box" id="chatBox"></div>
 
         <div class="input-area">
-            <input type="text" id="userInput" placeholder="Loading model..." disabled />
-            <button id="sendBtn" disabled>Send</button>
+            <input type="text" id="userInput" placeholder="Enter message..." />
+            <button id="sendBtn">Send</button>
         </div>
 
         <footer>
@@ -222,60 +223,22 @@
         </footer>
     </div>
 
-    <script type="module">
-        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
-
-        env.allowLocalModels = false;
-        env.useBrowserCache = true;
-
+    <script>
         const chatBox = document.getElementById('chatBox');
         const userInput = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
         const modelSelect = document.getElementById('modelSelect');
 
-        // Nutzt primär quantisierte 4-Bit-Gewichte für extrem schnelles Downloaden & Ausführen
+        const OLLAMA_HOST = 'http://localhost:11434';
+
+        // Mappings: leafdrop-2.5 nutzt ein ultra-leichtes Model (0.5b) & reduzierte Token-Limits für 2x Speed
         const MODEL_MAP = {
-            'kelp-flash': 'Xenova/Qwen1.5-0.5B-Chat',
-            'fatality-2': 'Xenova/Qwen1.5-0.5B-Chat' 
+            'kelp-flash': { name: 'qwen2.5:0.5b', num_predict: 256 },
+            'leafdrop-2.5': { name: 'qwen2.5:0.5b', num_predict: 128 },
+            'fatality-2': { name: 'qwen2.5:1.5b', num_predict: 384 }
         };
 
         const SYSTEM_PROMPT = "You are KelpAI, a specialized assistant for OSDev and GameDev. Answer directly, technically precise, and deliver clean code. Never use em dashes (--) in your output, use standard punctuation like periods or commas instead.";
-
-        let generator = null;
-
-        async function loadModel(modelKey) {
-            userInput.disabled = true;
-            sendBtn.disabled = true;
-            modelSelect.disabled = true;
-
-            try {
-                // Versuche WebGPU für max Speed zu nutzen, sonst Fallback auf WASM
-                const deviceOption = navigator.gpu ? 'webgpu' : 'wasm';
-
-                generator = await pipeline('text-generation', MODEL_MAP[modelKey], {
-                    device: deviceOption,
-                    dtype: 'q4', // Quantisiertes Modell (Lädt in Bruchteilen von Sekunden)
-                    progress_callback: (p) => {}
-                });
-
-                userInput.placeholder = "Enter message...";
-                userInput.disabled = false;
-                sendBtn.disabled = false;
-                modelSelect.disabled = false;
-            } catch (err) {
-                // Fallback ohne expliziten device/dtype Flag, falls der Browser alte Specs hat
-                try {
-                    generator = await pipeline('text-generation', MODEL_MAP[modelKey]);
-                    userInput.placeholder = "Enter message...";
-                    userInput.disabled = false;
-                    sendBtn.disabled = false;
-                    modelSelect.disabled = false;
-                } catch (fallbackErr) {
-                    console.error(fallbackErr);
-                    modelSelect.disabled = false;
-                }
-            }
-        }
 
         function appendMessage(text, className) {
             const msg = document.createElement('div');
@@ -292,7 +255,7 @@
 
         async function handleSend() {
             const text = userInput.value.trim();
-            if (!text || !generator) return;
+            if (!text) return;
 
             appendMessage(text, "user-message");
             userInput.value = "";
@@ -301,21 +264,33 @@
 
             const loadingMsg = appendMessage("...", "ai-message");
 
+            const selectedConfig = MODEL_MAP[modelSelect.value];
+
             try {
-                const prompt = `<|im_start|>system\n${SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n${text}<|im_end|>\n<|im_start|>assistant\n`;
-                
-                const result = await generator(prompt, {
-                    max_new_tokens: 256,
-                    temperature: 0.2,
-                    do_sample: true
+                const response = await fetch(`${OLLAMA_HOST}/api/generate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        model: selectedConfig.name,
+                        system: SYSTEM_PROMPT,
+                        prompt: text,
+                        stream: false,
+                        options: {
+                            num_predict: selectedConfig.num_predict
+                        }
+                    })
                 });
 
-                const rawOutput = result[0].generated_text;
-                let aiResponse = rawOutput.split('<|im_start|>assistant\n')[1]?.replace('<|im_end|>', '').trim() || rawOutput;
+                if (!response.ok) {
+                    throw new Error(`Ollama connection error: ${response.statusText}`);
+                }
 
-                loadingMsg.innerText = sanitizeOutput(aiResponse);
+                const data = await response.json();
+                loadingMsg.innerText = sanitizeOutput(data.response.trim());
             } catch (err) {
-                loadingMsg.innerText = "Generation error.";
+                loadingMsg.innerText = "Error: Could not connect to local Ollama instance (Make sure OLLAMA_ORIGINS='*' is set).";
                 console.error(err);
             } finally {
                 userInput.disabled = false;
@@ -324,16 +299,10 @@
             }
         }
 
-        modelSelect.addEventListener('change', (e) => {
-            loadModel(e.target.value);
-        });
-
         sendBtn.addEventListener('click', handleSend);
         userInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') handleSend();
         });
-
-        loadModel('kelp-flash');
     </script>
 </body>
 </html>
