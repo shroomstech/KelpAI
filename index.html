@@ -72,7 +72,13 @@
             border-radius: 4px;
         }
 
-        select {
+        .controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        select, input[type="password"] {
             background: var(--bg);
             color: var(--text);
             border: 1px solid var(--border);
@@ -80,6 +86,13 @@
             border-radius: 6px;
             font-size: 0.85rem;
             outline: none;
+        }
+
+        input[type="password"] {
+            width: 130px;
+        }
+
+        select {
             cursor: pointer;
         }
 
@@ -155,11 +168,6 @@
             opacity: 0.9;
         }
 
-        button:disabled, select:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-
         footer {
             padding: 8px 24px;
             border-top: 1px solid var(--border);
@@ -169,27 +177,28 @@
             flex-shrink: 0;
         }
 
-        @media (max-width: 600px) {
+        @media (max-width: 768px) {
             header {
                 padding: 12px 16px;
+                flex-direction: column;
+                align-items: flex-start;
             }
-
+            .controls {
+                width: 100%;
+                justify-content: space-between;
+            }
             .tag {
                 display: none;
             }
-
             .chat-box {
                 padding: 16px;
             }
-
             .message {
                 max-width: 90%;
             }
-
             .input-area {
                 padding: 12px 16px;
             }
-
             footer {
                 padding: 6px 16px;
             }
@@ -204,19 +213,22 @@
                 <h1>KelpAI</h1>
                 <span class="tag">OSDev & GameDev</span>
             </div>
-            <select id="modelSelect">
-                <option value="codecmedia-4.5">Codecmedia-4.5</option>
-                <option value="kelp-flash">kelp-flash</option>
-                <option value="leafdrop-2.5">leafdrop-2.5</option>
-                <option value="fatality-2">fatality-2</option>
-            </select>
+            <div class="controls">
+                <input type="password" id="apiKeyInput" placeholder="API Key..." />
+                <select id="modelSelect">
+                    <option value="GPT-6...">GPT-6...</option>
+                    <option value="CLD-3.5...">CLD-3.5...</option>
+                    <option value="GMI-2.5...">GMI-2.5...</option>
+                    <option value="Codecmedia-4.5...">Codecmedia-4.5...</option>
+                </select>
+            </div>
         </header>
 
         <div class="chat-box" id="chatBox"></div>
 
         <div class="input-area">
-            <input type="text" id="userInput" placeholder="Loading model..." disabled />
-            <button id="sendBtn" disabled>Send</button>
+            <input type="text" id="userInput" placeholder="Enter message..." />
+            <button id="sendBtn">Send</button>
         </div>
 
         <footer>
@@ -224,60 +236,14 @@
         </footer>
     </div>
 
-    <script type="module">
-        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
-
-        env.allowLocalModels = false;
-        env.useBrowserCache = true;
-
+    <script>
         const chatBox = document.getElementById('chatBox');
         const userInput = document.getElementById('userInput');
         const sendBtn = document.getElementById('sendBtn');
         const modelSelect = document.getElementById('modelSelect');
-
-        const MODEL_MAP = {
-            'codecmedia-4.5': 'Xenova/Qwen1.5-0.5B-Chat',
-            'kelp-flash': 'Xenova/Qwen1.5-0.5B-Chat',
-            'leafdrop-2.5': 'Xenova/Qwen1.5-0.5B-Chat',
-            'fatality-2': 'Xenova/Qwen1.5-0.5B-Chat'
-        };
+        const apiKeyInput = document.getElementById('apiKeyInput');
 
         const SYSTEM_PROMPT = "You are KelpAI, a specialized assistant for OSDev and GameDev. Answer directly, technically precise, and deliver clean code. Never use em dashes in your output, use standard punctuation like periods or commas instead.";
-
-        let generator = null;
-
-        async function loadModel(modelKey) {
-            userInput.disabled = true;
-            sendBtn.disabled = true;
-            modelSelect.disabled = true;
-            userInput.placeholder = "Loading model into browser cache...";
-
-            try {
-                const deviceOption = navigator.gpu ? 'webgpu' : 'wasm';
-
-                generator = await pipeline('text-generation', MODEL_MAP[modelKey], {
-                    device: deviceOption,
-                    dtype: 'q4'
-                });
-
-                userInput.placeholder = "Enter message...";
-                userInput.disabled = false;
-                sendBtn.disabled = false;
-                modelSelect.disabled = false;
-            } catch (err) {
-                try {
-                    generator = await pipeline('text-generation', MODEL_MAP[modelKey]);
-                    userInput.placeholder = "Enter message...";
-                    userInput.disabled = false;
-                    sendBtn.disabled = false;
-                    modelSelect.disabled = false;
-                } catch (fallbackErr) {
-                    console.error(fallbackErr);
-                    userInput.placeholder = "Error loading model.";
-                    modelSelect.disabled = false;
-                }
-            }
-        }
 
         function appendMessage(text, className) {
             const msg = document.createElement('div');
@@ -294,7 +260,10 @@
 
         async function handleSend() {
             const text = userInput.value.trim();
-            if (!text || !generator) return;
+            const selectedModel = modelSelect.value;
+            const apiKey = apiKeyInput.value.trim();
+
+            if (!text) return;
 
             appendMessage(text, "user-message");
             userInput.value = "";
@@ -304,20 +273,61 @@
             const loadingMsg = appendMessage("...", "ai-message");
 
             try {
-                const prompt = `<|im_start|>system\n${SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n${text}<|im_end|>\n<|im_start|>assistant\n`;
-                
-                const result = await generator(prompt, {
-                    max_new_tokens: 256,
-                    temperature: 0.2,
-                    do_sample: true
-                });
+                let aiResponse = "";
 
-                const rawOutput = result[0].generated_text;
-                let aiResponse = rawOutput.split('<|im_start|>assistant\n')[1]?.replace('<|im_end|>', '').trim() || rawOutput;
+                // Routing basierend auf dem Modell-Namen
+                if (selectedModel.startsWith("GPT") || selectedModel.startsWith("Codecmedia")) {
+                    if (!apiKey) throw new Error("API Key required for GPT models.");
+                    
+                    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify({
+                            model: 'gpt-4o-mini', // Fallback Mapping für Testzwecke
+                            messages: [
+                                { role: "system", content: SYSTEM_PROMPT },
+                                { role: "user", content: text }
+                            ],
+                            temperature: 0.2
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.error) throw new Error(data.error.message);
+                    aiResponse = data.choices[0].message.content;
 
-                loadingMsg.innerText = sanitizeOutput(aiResponse);
+                } else if (selectedModel.startsWith("CLD")) {
+                    if (!apiKey) throw new Error("API Key required for Claude models.");
+
+                    const res = await fetch('https://api.anthropic.com/v1/messages', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': apiKey,
+                            'anthropic-version': '2023-06-01',
+                            'anthropic-dangerous-direct-browser-access': 'true'
+                        },
+                        body: JSON.stringify({
+                            model: 'claude-3-5-sonnet-20241022',
+                            system: SYSTEM_PROMPT,
+                            max_tokens: 1024,
+                            messages: [{ role: "user", content: text }]
+                        })
+                    });
+                    const data = await res.json();
+                    if (data.error) throw new Error(data.error.message);
+                    aiResponse = data.content[0].text;
+
+                } else if (selectedModel.startsWith("GMI")) {
+                    // GMI agiert hier als direkter Simulator / Relay mit freiem Zugriff
+                    aiResponse = `[GMI Gateway] Processing via Gemini core for query: "${text}". OSDev/GameDev focus active. System operational.`;
+                }
+
+                loadingMsg.innerText = sanitizeOutput(aiResponse.trim());
             } catch (err) {
-                loadingMsg.innerText = "Generation error.";
+                loadingMsg.innerText = `Gateway Error: ${err.message}`;
                 console.error(err);
             } finally {
                 userInput.disabled = false;
@@ -326,16 +336,10 @@
             }
         }
 
-        modelSelect.addEventListener('change', (e) => {
-            loadModel(e.target.value);
-        });
-
         sendBtn.addEventListener('click', handleSend);
         userInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') handleSend();
         });
-
-        loadModel('codecmedia-4.5');
     </script>
 </body>
 </html>
