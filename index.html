@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AetherAI</title>
+    <style>
+        body {
+            background-color: #000000;
+            color: #00ff00;
+            font-family: monospace;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        header {
+            border-bottom: 1px solid #00ff00;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 1rem;
+            margin: 0;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            font-size: 0.9rem;
+        }
+
+        select {
+            background: #000;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            font-family: monospace;
+            padding: 2px 5px;
+        }
+
+        .chat-box {
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid #00ff00;
+            padding: 15px;
+            margin-bottom: 15px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.4;
+            font-size: 0.9rem;
+        }
+
+        .message {
+            margin-bottom: 12px;
+        }
+
+        .user-message {
+            color: #ffffff;
+        }
+
+        .user-message::before {
+            content: "> ";
+            color: #00ff00;
+        }
+
+        .ai-message {
+            color: #00ff00;
+        }
+
+        .input-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            background: #000;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 8px;
+            font-family: monospace;
+            outline: none;
+        }
+
+        button {
+            background: #000;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 8px 15px;
+            font-family: monospace;
+            cursor: pointer;
+        }
+
+        button:hover, select:hover {
+            background: #00ff00;
+            color: #000;
+        }
+
+        button:disabled, select:disabled {
+            border-color: #444;
+            color: #444;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>AetherAI</h1>
+        <div class="controls">
+            <select id="modelSelect">
+                <option value="aether-flash">aether-flash</option>
+                <option value="fatality-2">fatality-2</option>
+            </select>
+        </div>
+    </header>
+
+    <div class="chat-box" id="chatBox"></div>
+
+    <div class="input-area">
+        <input type="text" id="userInput" placeholder="Loading model..." disabled />
+        <button id="sendBtn" disabled>Send</button>
+    </div>
+
+    <script type="module">
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0';
+
+        env.allowLocalModels = false;
+
+        const chatBox = document.getElementById('chatBox');
+        const userInput = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const modelSelect = document.getElementById('modelSelect');
+
+        const MODEL_MAP = {
+            'aether-flash': 'Xenova/Qwen1.5-0.5B-Chat',
+            'fatality-2': 'Xenova/Qwen1.5-1.8B-Chat'
+        };
+
+        const SYSTEM_PROMPT = "You are AetherAI, a specialized AI for OSDev and GameDev. Respond directly, technically precise, and provide code snippets without unnecessary fluff.";
+
+        let generator = null;
+
+        async function loadModel(modelKey) {
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+            modelSelect.disabled = true;
+
+            try {
+                generator = await pipeline('text-generation', MODEL_MAP[modelKey], {
+                    progress_callback: (p) => {}
+                });
+
+                userInput.placeholder = "Enter message...";
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                modelSelect.disabled = false;
+            } catch (err) {
+                console.error(err);
+                modelSelect.disabled = false;
+            }
+        }
+
+        function appendMessage(text, className) {
+            const msg = document.createElement('div');
+            msg.className = `message ${className}`;
+            msg.innerText = text;
+            chatBox.appendChild(msg);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            return msg;
+        }
+
+        async function handleSend() {
+            const text = userInput.value.trim();
+            if (!text || !generator) return;
+
+            appendMessage(text, "user-message");
+            userInput.value = "";
+            userInput.disabled = true;
+            sendBtn.disabled = true;
+
+            const loadingMsg = appendMessage("...", "ai-message");
+
+            try {
+                const prompt = `<|im_start|>system\n${SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n${text}<|im_end|>\n<|im_start|>assistant\n`;
+                
+                const result = await generator(prompt, {
+                    max_new_tokens: 384,
+                    temperature: 0.2,
+                    do_sample: true
+                });
+
+                const rawOutput = result[0].generated_text;
+                const aiResponse = rawOutput.split('<|im_start|>assistant\n')[1]?.replace('<|im_end|>', '').trim() || rawOutput;
+
+                loadingMsg.innerText = aiResponse;
+            } catch (err) {
+                loadingMsg.innerText = "Generation error.";
+                console.error(err);
+            } finally {
+                userInput.disabled = false;
+                sendBtn.disabled = false;
+                userInput.focus();
+            }
+        }
+
+        modelSelect.addEventListener('change', (e) => {
+            loadModel(e.target.value);
+        });
+
+        sendBtn.addEventListener('click', handleSend);
+        userInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') handleSend();
+        });
+
+        loadModel('aether-flash');
+    </script>
+</body>
+</html>
