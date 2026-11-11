@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AetherAI</title>
+    <title>KelpAI</title>
     <style>
         body {
             background-color: #000000;
@@ -113,10 +113,10 @@
 <body>
 
     <header>
-        <h1>AetherAI</h1>
+        <h1>KelpAI</h1>
         <div class="controls">
             <select id="modelSelect">
-                <option value="aether-flash">aether-flash</option>
+                <option value="kelp-flash">kelp-flash</option>
                 <option value="fatality-2">fatality-2</option>
             </select>
         </div>
@@ -140,11 +140,11 @@
         const modelSelect = document.getElementById('modelSelect');
 
         const MODEL_MAP = {
-            'aether-flash': 'Xenova/Qwen1.5-0.5B-Chat',
+            'kelp-flash': 'Xenova/Qwen1.5-0.5B-Chat',
             'fatality-2': 'Xenova/Qwen1.5-1.8B-Chat'
         };
 
-        const SYSTEM_PROMPT = "You are AetherAI, a specialized AI for OSDev and GameDev. Respond directly, technically precise, and provide code snippets without unnecessary fluff.";
+        const SYSTEM_PROMPT = "You are KelpAI, a specialized AI for OSDev and GameDev. Respond directly, technically precise, and provide code snippets without unnecessary fluff.";
 
         let generator = null;
 
@@ -220,7 +220,7 @@
             if (e.key === 'Enter') handleSend();
         });
 
-        loadModel('aether-flash');
+        loadModel('kelp-flash');
     </script>
 </body>
 </html>
